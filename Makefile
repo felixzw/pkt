@@ -3,4 +3,4 @@ obj-m += pkt.o
 all:
 	make -C $(KERNELPATH) M=$(shell pwd)  
 clean:
-	rm -f *.o *.ko *.unsigned *.order *.symvers *.mod.c
+	rm -f *.o *.ko *.unsigned *.order *.symvers *.mod.c *.cmd

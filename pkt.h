@@ -41,6 +41,10 @@ struct acc_conn {
 	struct sk_buff_head acc_queue;
 
 	__be32 rcv_isn;
+	
+	
+	__u32 cur_ack;  /* The seq ACC already ACKed, so we can drop the same incoming pure ack packet*/
+	__u32 last_end_seq;
 	__u32 trigger;
 };
 

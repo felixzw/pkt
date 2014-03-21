@@ -119,6 +119,8 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	ap->ack_nr = 0;
 	ap->trigger = 10;
 	ap->rcv_isn = 0;
+	ap->last_end_seq = 0;
+	//ap->rcv_seq = 0;
 	skb_queue_head_init(&(ap->acc_queue));
 
 	/* Hash to acc_conn_tab */
@@ -139,6 +141,23 @@ void acc_conn_expire(struct acc_conn *ap)
 	kmem_cache_free(acc_conn_cachep, ap);
 }
 
+static inline int is_nilack(struct sk_buff *skb, int dir)
+{
+	struct tcphdr *th = tcp_hdr(skb);
+	__u32 end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - ip_hdr(skb)->ihl * 4;
+	if (dir == 0) { /* IN coming pkt */
+		if (th->ack && ntohl(th->seq) == end_seq) {
+			return 1;
+		}
+	} else {  /* Out going pkt */
+		if (th->ack && TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq) {
+			return 1;
+		}
+
+	}
+	return 0;
+}
+
 static unsigned int nf_hook_in(unsigned int hooknum,
 		struct sk_buff *sk,
 		const struct net_device *in,
@@ -153,38 +172,55 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 	tcphdr = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
 	// for test port 80 only
 	if (tcphdr->dest == htons(80)) {
+		
 		if (tcphdr->syn) {
 			ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, tcphdr->source, tcphdr->dest);		
 			if (ap == NULL) {
 				ap = acc_conn_new(iph->protocol, iph->saddr, iph->daddr, tcphdr->source, tcphdr->dest);	
 				if (ap == NULL) {
 					//ACC_DEBUG("IN Alloc acc_conn struct failed\n");
-					return NF_ACCEPT;
+					goto accept;
 				}
-				//ACC_DEBUG("IN Alloc acc_conn struct success\n");	
 				ap->rcv_isn = tcphdr->seq;
+				//ap->rcv_seq = tcphdr->seq;
 			}
-		} else if (tcphdr->fin) {
-			ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, tcphdr->source, tcphdr->dest);	
-			if (ap == NULL) {
-				return NF_ACCEPT;
-			} 
+			goto accept;
+		}
+
+		ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, tcphdr->source, tcphdr->dest);	
+		if (ap == NULL) {
+			//ACC_DEBUG("Cannot get conn when expire and free\n");
+			goto accept;
+		} 
+		
+		ap->last_end_seq = ntohl(tcphdr->seq) + tcphdr->syn + tcphdr->fin + skb->len - tcphdr->doff * 4 - iph->ihl * 4;
+		
+		if(tcphdr->fin) {
 			acc_conn_expire(ap);
-			//ACC_DEBUG("IN ACC conn expire and free success\n");
-		} else if (tcphdr->ack) {
+		} else if (is_nilack(skb, 0)) { //nil ACK
+			//if (ntohl(tcphdr->ack_seq) <= ap->cur_ack) {
+			//	ACC_DEBUG("IN Discard peer pure old ack, ack_seq=%u  cur_ack=%u\n", ntohl(tcphdr->ack_seq), ap->cur_ack);
+			//	goto drop;
+			//}
+		} else if (tcphdr->ack) {  //ACK with data
 			ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, tcphdr->source, tcphdr->dest);
 			if (ap == NULL) {
 				//ACC_DEBUG("IN ACK packet, get acc_conn failed\n");
-				return NF_ACCEPT;
+				goto accept;
 			} 
 			if (ap->ack_nr == 0) {
 				ap->ack = skb_copy(skb, GFP_ATOMIC);
 			}
 			ap->ack_nr ++;	
-			//ACC_DEBUG("IN ACK packet, get acc_conn success ack_nr=%u\n", ap->ack_nr);
 		} 	
+accept:
+		ACC_DEBUG("IN   seq=%u  ack_seq=%u\n", ntohl(tcphdr->seq),  ntohl(tcphdr->ack_seq));
+		return NF_ACCEPT;
 	}
 	return NF_ACCEPT;
+
+drop:
+	return NF_DROP;
 }
 
 void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *newskb)
@@ -214,9 +250,10 @@ struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 	__u32 seq, end_seq, ack_seq;
 	
 	tcphdr = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
-	seq = (tcphdr->seq);
+
+	seq = ntohl(tcphdr->seq);
 	end_seq = (TCP_SKB_CB(skb)->end_seq);
-	ack_seq = (tcphdr->ack_seq);
+	ack_seq = ntohl(tcphdr->ack_seq);
 
 	old_dst = skb_dst(ap->ack);
 	newack = skb_copy(ap->ack, GFP_ATOMIC);
@@ -228,14 +265,16 @@ struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 	dst_release(old_dst);
 
 	newiph = ip_hdr(newack);
-	newtcph = (struct tcphdr *)(skb_network_header(newack) + newiph->ihl * 4);
+	newtcph = tcp_hdr(newack);
 
-	if (!skb_make_writable(newack, sizeof(struct tcphdr) + tcphoff )) {
+	if (!skb_make_writable(newack, sizeof(struct tcphdr) + tcphoff)) {
 		//ACC_DEBUG("skb_make_writable failed\n");
 		return NULL;
 	}
 
-	newtcph->seq = htonl(ack_seq - 1);
+	//ACC_DEBUG("alloc_ack seq=%u  ack_seq=%u\n", htonl(ack_seq - 1), htonl(end_seq));
+	ACC_DEBUG("cur_skb: seq=%u  ack_seq=%u\n", ntohl(tcp_hdr(skb)->seq), ntohl(tcp_hdr(skb)->ack_seq));
+	newtcph->seq = htonl(ap->last_end_seq);  /* NOTE: The ack packet donot take any sequence */
 	newtcph->ack_seq = htonl(end_seq); 
 	/* full checksum calculation */
 	newtcph->check = 0;
@@ -255,10 +294,29 @@ struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 void acc_send_queue(struct acc_conn *ap)
 {
 	struct sk_buff *skb;
-	struct rtable *rt;		/* Route to the other host */
-	while (!skb_queue_empty(&(ap->acc_queue))) {
-		skb = skb_dequeue(&(ap->acc_queue));
+	struct dst_entry *old_dst;
+	/* Route to the other host */
+
+	skb_queue_walk(&(ap->acc_queue), skb)  {
+		skb_unlink(skb, &(ap->acc_queue));
 		dev_queue_xmit(skb);
+	}
+	
+	//while (!skb_queue_empty(&(ap->acc_queue))) {
+	//	skb = skb_dequeue(&(ap->acc_queue));
+	
+		/*old_dst = skb_dst(skb);
+		skb_dst_set(skb, NULL);
+		skb_dst_set(skb, old_dst);
+		dst_release(old_dst);
+
+		if (!skb_make_writable(skb, sizeof(struct tcphdr) + tcp_hdr(skb)->doff*4)) {
+			//ACC_DEBUG("skb_make_writable failed\n");
+			return;
+		}
+		*/
+	//	skb->pkt_type = PACKET_OUTGOING; 
+		//dev_queue_xmit(skb);
 		//rt = (struct rtable *)skb_dst(skb);
 		//NF_HOOK(PF_INET, NF_INET_LOCAL_OUT, (skb), NULL, (rt)->u.dst.dev, dst_output);
 #if 0
@@ -266,7 +324,7 @@ void acc_send_queue(struct acc_conn *ap)
 			    ip_finish_output,
 			    !(IPCB(skb)->flags & IPSKB_REROUTED));		
 #endif
-	}
+	//}
 }
 
 static unsigned int nf_hook_out(unsigned int hooknum,
@@ -282,40 +340,54 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 	struct acc_conn *ap;
 	struct sk_buff *data;
 
-	tcphdr = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
+	//tcphdr = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
+	tcphdr = tcp_hdr(skb);
 	if (tcphdr->source == htons(80)) {
+		if (is_nilack(skb, 1)) {
+			ACC_DEBUG("OUT Nilack ack_seq=%u\n", ntohl(tcphdr->ack_seq));
+			goto accept;
+		}
 		if (!tcphdr->syn) {
 			ap = acc_conn_get(iph->protocol, iph->daddr, iph->saddr, tcphdr->dest, tcphdr->source);
 			if (ap == NULL) {
 				ACC_DEBUG("OUT get acc_conn failed\n");
-				return NF_ACCEPT;
+				goto accept;
 			}
-			ACC_DEBUG("OUT get acc_conn success, ack_nr=%u\n", ap->ack_nr);
+			//ACC_DEBUG("OUT get acc_conn success, ack_nr=%u\n", ap->ack_nr);
 			if (tcphdr->ack && TCP_SKB_CB(skb)->end_seq == ap->rcv_isn + 1) {
-				return NF_ACCEPT;
+				goto accept;
 			}
-
 			/* Enqueue the pkt from TCP layer */
 			data = skb_copy(skb, GFP_ATOMIC);
 			acc_skb_enqueue(ap, data);
 			ap->trigger --;
 			if (tcphdr->fin || tcphdr->rst || ap->trigger == 0) {
-			//	acc_send_queue(ap);
-				ACC_DEBUG("Do not send queue here\n");
+				acc_send_queue(ap);
+				ACC_DEBUG("Do send queue here\n");
 				ap->trigger = 10;
 			} else {
 				/* Generage ACKs */
 				ack_skb = acc_alloc_ack(ap, skb);
-				if (ack_skb)	
-					ACC_DEBUG("Alloc ack_skb success\n");	
-				netif_rx(ack_skb);
+				if (ack_skb) {
+					//ACC_DEBUG("Alloc ack_skb success\n");	
+					ACC_DEBUG("M-IN seq=%u  ack_seq=%u , OUTGOING-PKT seq=%u ack_seq=%u end_seq=%u\n",
+							 ntohl(tcp_hdr(ack_skb)->seq), ntohl(tcp_hdr(ack_skb)->ack_seq),
+							 ntohl(tcp_hdr(skb)->seq), ntohl(tcp_hdr(skb)->ack_seq), TCP_SKB_CB(skb)->end_seq);
+					ap->cur_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
+					netif_rx(ack_skb);
+				}
 				//ACC_DEBUG("netif_rx ok\n");
 			}
 			//return NF_STOLEN;
 			//return NF_DROP;
-			return NF_ACCEPT;
+			goto accept;
 		}
+accept:
+
+		ACC_DEBUG("OUT  seq=%u  ack_seq=%u\n", ntohl(tcphdr->seq), ntohl(tcphdr->ack_seq));
+		return NF_ACCEPT;
 	}
+
 	return NF_ACCEPT;
 }
 
