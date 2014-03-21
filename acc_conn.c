@@ -1,5 +1,12 @@
-#include "acc_conn.h"
+#include "acc.h"
 
+
+#define ACC_CONN_TAB_SIZE 0xfff
+#define CT_LOCKARRAY_MASK 0xfff
+#define CT_LOCKARRAY_SIZE 0xfff
+
+#define ACC_DEBUG(msg...) \
+	printk(KERN_INFO "ACC: " msg);
 
 
 
@@ -27,8 +34,6 @@ static inline void ct_write_unlock(unsigned key)
 	write_unlock(&__acc_conntbl_lock_array[key&CT_LOCKARRAY_MASK].l);
 }
 
-
-
 static inline unsigned __hash(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport, int reverse)
 {
 	unsigned hash;
@@ -38,6 +43,22 @@ static inline unsigned __hash(int proto, __be32 saddr, __be32 daddr, __be16 spor
 		 hash = (proto + saddr + daddr + sport + dport)%100;
 	}
 	return hash;
+}
+
+static inline int acc_conn_unhash(struct acc_conn *ap)
+{
+	unsigned hash;
+	int ret = 0;
+
+	hash = __hash(ap->proto, ap->saddr, ap->daddr, ap->sport, ap->dport, 0);
+	
+	ct_write_lock(hash);
+	
+	list_del(&ap->c_list);
+
+	ct_write_unlock(hash);
+
+	return ret;
 }
 
 struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
@@ -62,21 +83,7 @@ struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	return NULL;
 }
 
-static inline int acc_conn_unhash(struct acc_conn *ap)
-{
-	unsigned hash;
-	int ret = 0;
 
-	hash = __hash(ap->proto, ap->saddr, ap->daddr, ap->sport, ap->dport, 0);
-	
-	ct_write_lock(hash);
-	
-	list_del(&ap->c_list);
-
-	ct_write_unlock(hash);
-
-	return ret;
-}
 
 struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
 {

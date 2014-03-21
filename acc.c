@@ -14,8 +14,6 @@
 #include <linux/vmalloc.h>
 
 #include "acc.h"
-#include "acc_conn.h"
-#include "acc_sk.h"
 
 
 MODULE_LICENSE("GPL");

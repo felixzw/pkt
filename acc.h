@@ -25,3 +25,43 @@ enum {
 	CLOSE,
 };
 
+struct acc_conn {
+	struct list_head c_list;
+	__be32 saddr;
+	__be32 daddr;
+	__be16 sport;
+	__be16 dport;
+	__be16 proto;
+
+	__u32 state;
+	__u32 ack_nr;
+
+	struct sk_buff *ack;
+	__u32 acc_ssthresh;
+	struct sk_buff_head acc_queue;
+
+	__be32 rcv_isn;
+	
+	
+	__u32 cur_ack;  /* The seq ACC already ACKed, so we can drop the same incoming pure ack packet*/
+	__u32 last_end_seq;
+	__u32 trigger;
+};
+
+/*
+ * lock array element for acc_conn
+ */
+struct acc_aligned_lock
+{
+    rwlock_t	l;
+};
+
+
+extern void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *newskb);
+extern struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb);
+extern void acc_send_queue(struct acc_conn *ap);
+
+extern struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport);
+extern void acc_conn_expire(struct acc_conn *ap);
+extern void acc_conn_cleanup(void);
+extern int acc_conn_init(void);
