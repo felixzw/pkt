@@ -33,19 +33,42 @@ struct acc_conn {
 	__be16 dport;
 	__be16 proto;
 
-	__u32 state;
+	__u32 state;  /* Intend for TCP/IP stack states */
+
+	/*
+	 *  This is important for pkts mangling 
+	 *  NOTE: All seq are u32	
+	 *  end_seq is using for calc pure ack
+	 */
+	__u32 seq;
+	__u32 end_seq;
+	__u32 ack_seq;
+	__u32 rcv_seq;
+	__u32 rcv_end_seq;
+	__u32 rcv_ack_seq;
+	
+	__u32 rcv_isn; /* This is for? */
+	__u32 acc_ack;  /* The seq ACC already ACKed, so we can drop the same incoming pure ack packet*/
+	
+	/* skb queue for ACC */
+	struct sk_buff_head send_queue;
+	struct sk_buff_head rcv_queue; /* NOT using right now */
+
+	struct sk_buff *ack; /* Cache the ack from remote, ugly here */
+
+	/*
+	 *  L4  strategy 
+	 *  cwnd 
+	 *  ssthresh
+	 * */
+
+	__u32 ssthresh;
+	__u32 cwnd;
+	
+	// for debug using
+	__u32 trigger;
 	__u32 ack_nr;
 
-	struct sk_buff *ack;
-	__u32 acc_ssthresh;
-	struct sk_buff_head acc_queue;
-
-	__be32 rcv_isn;
-	
-	
-	__u32 cur_ack;  /* The seq ACC already ACKed, so we can drop the same incoming pure ack packet*/
-	__u32 last_end_seq;
-	__u32 trigger;
 };
 
 /*
@@ -57,10 +80,13 @@ struct acc_aligned_lock
 };
 
 
+
+extern int is_nilack(struct sk_buff *skb, int dir);
 extern void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *newskb);
 extern struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb);
 extern void acc_send_queue(struct acc_conn *ap);
 
+extern struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport);
 extern struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport);
 extern void acc_conn_expire(struct acc_conn *ap);
 extern void acc_conn_cleanup(void);

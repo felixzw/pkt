@@ -1,6 +1,10 @@
 #include "acc.h"
 
-static inline int is_nilack(struct sk_buff *skb, int dir)
+/*
+ * It is ugly here ...
+ * */
+
+int is_nilack(struct sk_buff *skb, int dir)
 {
 	struct tcphdr *th = tcp_hdr(skb);
 	__u32 end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - ip_hdr(skb)->ihl * 4;
@@ -17,72 +21,72 @@ static inline int is_nilack(struct sk_buff *skb, int dir)
 	return 0;
 }
 
-void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *newskb)
+void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *nskb)
 {
-	struct sk_buff_head *list = &(ap->acc_queue);
+	struct sk_buff_head *list = &(ap->send_queue);
 	struct dst_entry *old_dst;
 
-	//old_dst = skb_dst(newskb);
-	//skb_dst_set(newskb, NULL);
+	//old_dst = skb_dst(nskb);
+	//skb_dst_set(nskb, NULL);
 	// ...
-	//skb_dst_set(newskb, old_dst);
+	//skb_dst_set(nskb, old_dst);
 	//dst_release(old_dst);
 
-	//ACC_DEBUG("PKT: seq=%u ack_seq \n", TCP_SKB_CB(newskb)->seq);
-	skb_queue_tail(list, newskb);
+	//ACC_DEBUG("PKT: seq=%u ack_seq \n", TCP_SKB_CB(nskb)->seq);
+	skb_queue_tail(list, nskb);
 }
 
 struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 {
-	struct sk_buff *newack;
-	struct tcphdr *tcphdr = NULL;
-	struct tcphdr *newtcph = NULL;
+	struct sk_buff *nack;
+	struct tcphdr *th = NULL;
+	struct tcphdr *newth = NULL;
 	struct iphdr *iph = ip_hdr(skb);
 	struct iphdr *newiph;
 	unsigned int tcphoff ;
 	struct dst_entry *old_dst;
 	__u32 seq, end_seq, ack_seq;
 	
-	tcphdr = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
+	th = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
 
-	seq = ntohl(tcphdr->seq);
+	seq = ntohl(th->seq);
 	end_seq = (TCP_SKB_CB(skb)->end_seq);
-	ack_seq = ntohl(tcphdr->ack_seq);
+	ack_seq = ntohl(th->ack_seq);
 
 	old_dst = skb_dst(ap->ack);
-	newack = skb_copy(ap->ack, GFP_ATOMIC);
-	tcphoff = ip_hdrlen(newack);
+	nack = skb_copy(ap->ack, GFP_ATOMIC);
+	tcphoff = ip_hdrlen(nack);
 	
-	skb_dst_set(newack, NULL);
+	skb_dst_set(nack, NULL);
 	// ...
-	skb_dst_set(newack, old_dst);
+	skb_dst_set(nack, old_dst);
 	dst_release(old_dst);
 
-	newiph = ip_hdr(newack);
-	newtcph = tcp_hdr(newack);
+	newiph = ip_hdr(nack);
+	newth = tcp_hdr(nack);
 
-	if (!skb_make_writable(newack, sizeof(struct tcphdr) + tcphoff)) {
+	if (!skb_make_writable(nack, sizeof(struct tcphdr) + tcphoff)) {
 		//ACC_DEBUG("skb_make_writable failed\n");
 		return NULL;
 	}
 
 	//ACC_DEBUG("alloc_ack seq=%u  ack_seq=%u\n", htonl(ack_seq - 1), htonl(end_seq));
 	ACC_DEBUG("cur_skb: seq=%u  ack_seq=%u\n", ntohl(tcp_hdr(skb)->seq), ntohl(tcp_hdr(skb)->ack_seq));
-	newtcph->seq = htonl(ap->last_end_seq);  /* NOTE: The ack packet donot take any sequence */
-	newtcph->ack_seq = htonl(end_seq); 
+	newth->seq = htonl(ap->rcv_end_seq);  /* NOTE: The ack packet donot take any sequence */
+	newth->ack_seq = htonl(end_seq); 
 	/* full checksum calculation */
-	newtcph->check = 0;
-	newack->csum = skb_checksum(newack, tcphoff, newack->len - tcphoff, 0);
-	newtcph->check = csum_tcpudp_magic(newiph->saddr,
+	newth->check = 0;
+	nack->csum = skb_checksum(nack, tcphoff, nack->len - tcphoff, 0);
+	newth->check = csum_tcpudp_magic(newiph->saddr,
 			newiph->daddr,
-			newack->len - tcphoff,
+			nack->len - tcphoff,
 			newiph->protocol,
-			newack->csum);
-	newack->ip_summed = CHECKSUM_UNNECESSARY;
+			nack->csum);
+	nack->ip_summed = CHECKSUM_UNNECESSARY;
 
-	newack->pkt_type = PACKET_HOST;
+	nack->pkt_type = PACKET_HOST;
 	
-	return newack;
+	return nack;
 }
 
 void acc_send_queue(struct acc_conn *ap)

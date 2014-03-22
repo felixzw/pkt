@@ -34,13 +34,16 @@ static inline void ct_write_unlock(unsigned key)
 	write_unlock(&__acc_conntbl_lock_array[key&CT_LOCKARRAY_MASK].l);
 }
 
+/*  return the hash val 
+ *  alg will change later ...
+ * */
 static inline unsigned __hash(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport, int reverse)
 {
 	unsigned hash;
 	if (reverse) {
-		 hash = (proto + saddr + daddr + sport + dport)%100;
+		 hash = (proto + saddr + daddr + sport + dport) & 0xff;
 	} else {
-		 hash = (proto + saddr + daddr + sport + dport)%100;
+		 hash = (proto + saddr + daddr + sport + dport) & 0xff;
 	}
 	return hash;
 }
@@ -51,24 +54,24 @@ static inline int acc_conn_unhash(struct acc_conn *ap)
 	int ret = 0;
 
 	hash = __hash(ap->proto, ap->saddr, ap->daddr, ap->sport, ap->dport, 0);
-	
 	ct_write_lock(hash);
-	
 	list_del(&ap->c_list);
-
 	ct_write_unlock(hash);
 
 	return ret;
 }
 
+/*
+ * Copy from IPVS
+ * */
 struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
 {
 	unsigned hash;
 	struct acc_conn *ap;
 
 	hash = __hash(proto, saddr, daddr, sport, dport, 0);
-	ct_read_lock(hash);
 
+	ct_read_lock(hash);
 	list_for_each_entry(ap, &acc_conn_tab[hash], c_list) {
 		if (saddr==ap->saddr && sport==ap->sport &&
 		    dport==ap->dport && daddr==ap->daddr &&
@@ -78,12 +81,9 @@ struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 spor
 			return ap;
 		}
 	}
-
 	ct_read_unlock(hash);
 	return NULL;
 }
-
-
 
 struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
 {
@@ -102,16 +102,16 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	ap->daddr = daddr;
 	ap->sport = sport;
 	ap->dport = dport;
-	ap->state = SYN_RCV;
+
+	ap->state = SYN_RCV; /* of course, this is wrong ... */
+
+	ap->ssthresh = 50;  /* TODO: later ... */
+	ap->cwnd = 50;
 	
-	ap->acc_ssthresh = 20;
-	ap->ack = NULL;
-	ap->ack_nr = 0;
-	ap->trigger = 10;
-	ap->rcv_isn = 0;
-	ap->last_end_seq = 0;
-	//ap->rcv_seq = 0;
-	skb_queue_head_init(&(ap->acc_queue));
+	ap->trigger = 10; /* Just for debug */
+
+	skb_queue_head_init(&(ap->send_queue));
+	skb_queue_head_init(&(ap->rcv_queue));
 
 	/* Hash to acc_conn_tab */
 	hash = __hash(proto, saddr, daddr, sport, dport, 0);	
@@ -136,9 +136,7 @@ void acc_conn_cleanup(void)
 {
 	/* Release the empty cache */
 	kmem_cache_destroy(acc_conn_cachep);
-
 	vfree(acc_conn_tab);
-
 	/*icymoon: free the lock array, for our tiny hash lock*/
 	vfree(__acc_conntbl_lock_array);
 }
@@ -182,5 +180,3 @@ clean_conn_cachep:
 e_nomem:
 	return -ENOMEM;
 }
-
-
