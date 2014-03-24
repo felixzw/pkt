@@ -151,9 +151,11 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 
 void acc_conn_expire(struct acc_conn *ap)
 {
+	/*
 	if (ap->ack) {
 		kfree_skb(ap->ack);
 	}
+	*/
 	acc_conn_unhash(ap);
 	kmem_cache_free(acc_conn_cachep, ap);
 }

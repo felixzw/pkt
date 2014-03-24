@@ -114,6 +114,7 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 	return nskb;
 }
 
+#if 0
 struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 {
 	struct sk_buff *nack;
@@ -166,6 +167,7 @@ struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 	
 	return nack;
 }
+#endif
 
 static int acc_send_skb(struct sk_buff *skb)
 {

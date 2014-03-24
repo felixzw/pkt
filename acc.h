@@ -62,7 +62,7 @@ struct acc_conn {
 	struct sk_buff_head send_queue;
 	struct sk_buff_head rcv_queue; /* NOT using right now */
 
-	struct sk_buff *ack; /* Cache the ack from remote, ugly here */
+	//struct sk_buff *ack; /* Cache the ack from remote, ugly here */
 
 	/*
 	 *  L4  strategy 

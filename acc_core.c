@@ -93,10 +93,11 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 		} else if (th->ack) {  //ACK with data
 			/*  This is for test 
 			 *  I am not sure copy the ack is a right way
-			 * 			*/ 
+			 * 			 
 			if (ap->ack_nr == 0) {
 				ap->ack = skb_copy(skb, GFP_ATOMIC);
 			}
+			*/
 			ap->ack_nr ++;	
 		} 	
 accept:
