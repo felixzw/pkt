@@ -44,7 +44,7 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 	struct tcphdr *th;
 	struct iphdr *iph;
 	__u32 nseq, nack_seq;
-	int l4len;
+	int l4len, ret;
 	struct rtable *rt;
 	struct flowi fl = {};
 
@@ -90,20 +90,27 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 			iph->protocol,
 			nskb->csum);
 	nskb->ip_summed = CHECKSUM_UNNECESSARY;
-
+	nskb->pkt_type = PACKET_HOST;
 	/* ip_route_me_harder expects skb->dst to be set */
-	skb_dst_set(nskb, dst_clone(skb_dst(ap->ack)));
+	//skb_dst_set(nskb, dst_clone(skb_dst(ap->ack)));
 
 	//fl.nl_u.ip4_u.daddr = iph->daddr;
 	//if (ip_route_input(nskb, iph->daddr, iph->saddr, RT_TOS(iph->tos), ap->indev) != 0)
-	if (ip_route_me_harder(nskb, RTN_LOCAL))
+	/*if (ip_route_me_harder(nskb, RTN_LOCAL))
 	{
 		ACC_DEBUG("ip_route_output_key");
 		kfree_skb(nskb);
 		return NULL;
 	}
-
+	*/
 	//skb_dst_set(nskb, &rt->u.dst);
+	
+	ret = ip_route_input(nskb, iph->daddr, iph->saddr, RT_TOS(iph->tos), ap->indev);
+	if (ret) {
+		ACC_DEBUG("ip_route_output_key failed %u\n", -ret);
+		kfree_skb(nskb);
+		return NULL;
+	}
 	return nskb;
 }
 

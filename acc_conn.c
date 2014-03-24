@@ -72,7 +72,7 @@ struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	else 
 		hash = __hash(proto, daddr, saddr, dport, sport);
 
-	ACC_DEBUG("Direction: %u   Hash %u\n", dir, hash);
+	//ACC_DEBUG("Direction: %u   Hash %u\n", dir, hash);
 
 	ct_read_lock(hash);
 	if (dir == ACC_IN) 
@@ -135,7 +135,7 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 
 	/* Hash to acc_conn_tab */
 	hash = __hash(proto, saddr, daddr, sport, dport);
-	ACC_DEBUG("Alloc hash=%u\n", hash);	
+	//ACC_DEBUG("Alloc hash=%u\n", hash);	
 	if (ap==NULL) {
 		ACC_DEBUG("?? ap==NULL?\n");
 	}

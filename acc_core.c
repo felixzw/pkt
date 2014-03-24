@@ -178,8 +178,9 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 						ntohl(tcp_hdr(ack_skb)->seq), ntohl(tcp_hdr(ack_skb)->ack_seq),
 						ntohl(tcp_hdr(skb)->seq), ntohl(tcp_hdr(skb)->ack_seq), TCP_SKB_CB(skb)->end_seq);
 				//ap->acc_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
-				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, ap->in_okfn);
+				//NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, ap->in_okfn);
 				
+				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
 				/*Damn ... It is not working sometimes ...
 				 *  netif_rx is a bad idea
 				 * */
