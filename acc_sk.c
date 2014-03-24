@@ -1,12 +1,14 @@
+#include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
 #include "acc.h"
-
 /*
  * It is ugly here ...
  * */
 
 int is_nilack(struct sk_buff *skb, int dir)
 {
-	struct tcphdr *th = tcp_hdr(skb);
+	struct iphdr *iph = ip_hdr(skb);
+	struct tcphdr *th = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
 	__u32 end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - ip_hdr(skb)->ihl * 4;
 	if (dir == 0) { /* IN coming pkt */
 		if (th->ack && ntohl(th->seq) == end_seq) {
@@ -34,6 +36,75 @@ void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *nskb)
 
 	//ACC_DEBUG("PKT: seq=%u ack_seq \n", TCP_SKB_CB(nskb)->seq);
 	skb_queue_tail(list, nskb);
+}
+
+struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
+{
+	struct sk_buff *nskb;
+	struct tcphdr *th;
+	struct iphdr *iph;
+	__u32 nseq, nack_seq;
+	int l4len;
+	struct rtable *rt;
+	struct flowi fl = {};
+
+	iph = (struct iphdr *)ip_hdr(skb);
+	th = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
+	
+	nseq =  htonl(ap->rcv_end_seq);  /* NOTE: The ack packet donot take any sequence */
+	nack_seq = htonl((TCP_SKB_CB(skb)->end_seq));
+
+	nskb = alloc_skb(MAX_TCP_HEADER, GFP_ATOMIC);
+	if (nskb == NULL) {
+		ACC_DEBUG("alloc skb failed\n");
+		return NULL;
+	}
+	/* Reserve space for headers and prepare control bits. */
+	skb_reserve(nskb, MAX_TCP_HEADER);
+	
+	th = (struct tcphdr *)skb_push(nskb, sizeof(struct tcphdr));
+	th->source    = ap->sport;
+	th->dest    = ap->dport;
+	th->doff    = sizeof(struct tcphdr) >> 2;
+	th->seq        = nseq;
+	th->ack_seq  = nack_seq;
+	th->window    = htons(0xFFFF);
+	skb_reset_transport_header(nskb);
+
+	iph = (struct iphdr *)skb_push(nskb, sizeof(struct iphdr));
+	iph->ihl    = sizeof(struct iphdr) >> 2;
+	iph->version    = 4;
+	iph->tot_len    = htons(nskb->len);
+	iph->ttl    = 64;
+	iph->protocol    = IPPROTO_TCP;
+	iph->saddr    = ap->saddr;
+	iph->daddr    = ap->daddr;
+	ip_send_check(iph);
+	skb_reset_network_header(nskb);
+
+	th->check = 0;
+	nskb->csum = skb_checksum(nskb, ip_hdrlen(nskb), nskb->len - ip_hdrlen(nskb), 0);
+	th->check = csum_tcpudp_magic(iph->saddr,
+			iph->daddr,
+			nskb->len - ip_hdrlen(nskb),
+			iph->protocol,
+			nskb->csum);
+	nskb->ip_summed = CHECKSUM_UNNECESSARY;
+
+	/* ip_route_me_harder expects skb->dst to be set */
+	skb_dst_set(nskb, dst_clone(skb_dst(ap->ack)));
+
+	//fl.nl_u.ip4_u.daddr = iph->daddr;
+	//if (ip_route_input(nskb, iph->daddr, iph->saddr, RT_TOS(iph->tos), ap->indev) != 0)
+	if (ip_route_me_harder(nskb, RTN_LOCAL))
+	{
+		ACC_DEBUG("ip_route_output_key");
+		kfree_skb(nskb);
+		return NULL;
+	}
+
+	//skb_dst_set(nskb, &rt->u.dst);
+	return nskb;
 }
 
 struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
@@ -89,6 +160,16 @@ struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 	return nack;
 }
 
+static int acc_send_skb(struct sk_buff *skb)
+{
+	
+	return 0;
+}
+
+
+/*
+ * NOTE: Must clone skb first before we send it out 
+ * */
 void acc_send_queue(struct acc_conn *ap)
 {
 	struct sk_buff *skb, *n;

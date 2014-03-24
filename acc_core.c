@@ -15,6 +15,11 @@
 
 #include "acc.h"
 
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("ZY");
+MODULE_DESCRIPTION("ACC Func Test");
+MODULE_ALIAS("ACC Module Test");
+
 /*
  *  Get the incoming pkts
  *  Discard the pure ack from remote which we are already send to UP LAYER  
@@ -34,31 +39,41 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 	struct iphdr *iph = ip_hdr(sk);
 	struct acc_conn *ap;
 	
-	th = tcp_hdr(skb); /* Donot use skb_network_header, that's real annoy */
-	
+
+	/* NOTE: In comint pkts just get into network
+	 * the tcp_hdr func couldnot work!
+	 * */
+	th = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
+
 	if (th->dest == htons(80)) {
 		if (th->syn) {
-			ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest);		
+			ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_IN);		
 			if (ap == NULL) {
 				ap = acc_conn_new(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest);	
 				if (ap == NULL) {
-					//ACC_DEBUG("IN Alloc acc_conn struct failed\n");
+					ACC_DEBUG("IN Alloc acc_conn struct failed\n");
 					goto accept;
 				}
 				ap->rcv_isn = ntohl(th->seq);
 				ap->rcv_seq = ntohl(th->seq);
 				ap->rcv_ack_seq = ntohl(th->ack_seq);
 				ap->rcv_end_seq = ap->rcv_isn + th->fin + th->syn + skb->len - iph->ihl * 4 - th->doff * 4;
+				
+				ap->in_okfn = okfn;
+				ap->indev = skb->dev;
+				/* Init the mac head of acc_conn */
+				memcmp(ap->src_mac, eth_hdr(skb)->h_source, ETH_ALEN);
+				memcmp(ap->dst_mac, eth_hdr(skb)->h_dest, ETH_ALEN);
 			}
 			goto accept;
 		}
 
-		ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest);	
+		ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_IN);	
 		if (ap == NULL) {
 			//ACC_DEBUG("Cannot get conn when expire and free\n");
 			goto accept;
 		} 
-		
+		ACC_DEBUG("IN GET acc_conn\n");
 		ap->rcv_end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - iph->ihl * 4;
 		ap->rcv_ack_seq = ntohl(th->ack_seq);
 		ap->rcv_seq = ntohl(th->seq);
@@ -71,17 +86,11 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 
 		/* nilACK detected, Maybe is our acc_ack, Just accept it right now */
 		} else if (is_nilack(skb, 0)) {	
-			if (ntohl(th->ack_seq) < ap->acc_ack) {
-				ACC_DEBUG("IN Discard peer pure old ack, ack_seq=%u  cur_ack=%u\n", ntohl(th->ack_seq), ap->acc_ack);
-				goto drop;
+			if (ntohl(th->ack_seq) == ap->acc_ack) {
+				ACC_DEBUG("RECV OUR ACC ACKS ack_seq=%u  cur_ack=%u\n", ntohl(th->ack_seq), ap->acc_ack);
+				//goto drop;
 			}
 		} else if (th->ack) {  //ACK with data
-			ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest);
-			if (ap == NULL) {
-				//ACC_DEBUG("IN ACK packet, get acc_conn failed\n");
-				goto accept;
-			}
-
 			/*  This is for test 
 			 *  I am not sure copy the ack is a right way
 			 * 			*/ 
@@ -118,11 +127,13 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 	struct sk_buff *ack_skb;
 	struct acc_conn *ap;
 	struct sk_buff *data;
+	int ret;
 
 	th = tcp_hdr(skb);
 	if (th->source == htons(80)) {
-		ap = acc_conn_get(iph->protocol, iph->daddr, iph->saddr, th->dest, th->source);
+		ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_OUT);
 		if (ap == NULL) {
+			ACC_DEBUG("saddr %u daddr %u sport %u dport %u\n", ntohl(iph->saddr), ntohl(iph->daddr), ntohs(th->source), ntohs(th->dest));
 			ACC_DEBUG("OUT get acc_conn failed\n");
 			goto accept;
 		}
@@ -131,6 +142,8 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 			ap->seq = ntohl(th->seq);
 			ap->end_seq = TCP_SKB_CB(skb)->end_seq; /* skb alreay go through TCP layer, use TCP_SKB_CB safely */		
 			ap->ack_seq = ntohl(th->ack_seq);
+			ap->out_okfn = okfn;
+			ap->outdev = skb->dev;
 			goto accept;
 		}
 
@@ -158,18 +171,26 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 			ap->trigger = 10;
 		} else {
 			/* Generage ACKs */
-			ack_skb = acc_alloc_ack(ap, skb);
+			ack_skb = acc_alloc_nilack(ap, skb);
 			if (ack_skb) {
 				//ACC_DEBUG("Alloc ack_skb success\n");	
 				ACC_DEBUG("M-IN seq=%u  ack_seq=%u , OUTGOING-PKT seq=%u ack_seq=%u end_seq=%u\n",
 						ntohl(tcp_hdr(ack_skb)->seq), ntohl(tcp_hdr(ack_skb)->ack_seq),
 						ntohl(tcp_hdr(skb)->seq), ntohl(tcp_hdr(skb)->ack_seq), TCP_SKB_CB(skb)->end_seq);
-				ap->acc_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
+				//ap->acc_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
+				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, ap->in_okfn);
 				
 				/*Damn ... It is not working sometimes ...
 				 *  netif_rx is a bad idea
 				 * */
-				netif_rx(ack_skb);
+				/*ret = netif_rx(ack_skb);
+				//ret = netif_receive_skb(ack_skb);
+				if (ret == NET_RX_DROP) {
+					ACC_DEBUG("Rcv skb failed\n");
+				} else {
+					kfree(ack_skb);
+				}
+				*/
 			}
 			//ACC_DEBUG("netif_rx ok\n");
 		}
@@ -220,13 +241,6 @@ void __exit acc_exit(void)
 	printk("AccNet test module exit\n");
 	return;
 }
-
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("ZY");
-MODULE_DESCRIPTION("ACC Func Test");
-MODULE_ALIAS("ACC Module Test");
-
 
 module_init(acc_init);
 module_exit(acc_exit);

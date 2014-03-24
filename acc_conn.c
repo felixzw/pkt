@@ -37,14 +37,11 @@ static inline void ct_write_unlock(unsigned key)
 /*  return the hash val 
  *  alg will change later ...
  * */
-static inline unsigned __hash(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport, int reverse)
+static inline unsigned __hash(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
 {
 	unsigned hash;
-	if (reverse) {
-		 hash = (proto + saddr + daddr + sport + dport) & 0xff;
-	} else {
-		 hash = (proto + saddr + daddr + sport + dport) & 0xff;
-	}
+	hash = (proto + saddr + daddr + sport + dport) %100;
+
 	return hash;
 }
 
@@ -53,7 +50,8 @@ static inline int acc_conn_unhash(struct acc_conn *ap)
 	unsigned hash;
 	int ret = 0;
 
-	hash = __hash(ap->proto, ap->saddr, ap->daddr, ap->sport, ap->dport, 0);
+	hash = __hash(ap->proto, ap->saddr, ap->daddr, ap->sport, ap->dport);
+
 	ct_write_lock(hash);
 	list_del(&ap->c_list);
 	ct_write_unlock(hash);
@@ -64,23 +62,40 @@ static inline int acc_conn_unhash(struct acc_conn *ap)
 /*
  * Copy from IPVS
  * */
-struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
+struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport, int dir)
 {
 	unsigned hash;
 	struct acc_conn *ap;
 
-	hash = __hash(proto, saddr, daddr, sport, dport, 0);
+	if (dir == ACC_IN)
+		hash = __hash(proto, saddr, daddr, sport, dport);
+	else 
+		hash = __hash(proto, daddr, saddr, dport, sport);
+
+	ACC_DEBUG("Direction: %u   Hash %u\n", dir, hash);
 
 	ct_read_lock(hash);
-	list_for_each_entry(ap, &acc_conn_tab[hash], c_list) {
-		if (saddr==ap->saddr && sport==ap->sport &&
-		    dport==ap->dport && daddr==ap->daddr &&
-		    proto == ap->proto) {
-			/* HIT */
-			ct_read_unlock(hash);
-			return ap;
+	if (dir == ACC_IN) 
+		list_for_each_entry(ap, &acc_conn_tab[hash], c_list) {
+			if (saddr==ap->saddr && sport==ap->sport &&
+					dport==ap->dport && daddr==ap->daddr &&
+					proto == ap->proto) {
+				/* HIT */
+				ct_read_unlock(hash);
+				return ap;
+			}
 		}
-	}
+	else	
+		list_for_each_entry(ap, &acc_conn_tab[hash], c_list) {
+			if (saddr==ap->daddr && sport==ap->dport &&
+					dport==ap->sport && daddr==ap->saddr &&
+					proto == ap->proto) {
+				/* HIT */
+				ct_read_unlock(hash);
+				return ap;
+			}
+		}
+
 	ct_read_unlock(hash);
 	return NULL;
 }
@@ -92,6 +107,7 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	
 	ap = kmem_cache_alloc(acc_conn_cachep, GFP_ATOMIC);
 	if (ap == NULL) {
+		ACC_DEBUG("alloc ap==NULL?\n");
 		return NULL;
 	}
 
@@ -113,12 +129,23 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	skb_queue_head_init(&(ap->send_queue));
 	skb_queue_head_init(&(ap->rcv_queue));
 
+	if (ap==NULL) {
+		ACC_DEBUG("?? ap==NULL?\n");
+	}
+
 	/* Hash to acc_conn_tab */
-	hash = __hash(proto, saddr, daddr, sport, dport, 0);	
+	hash = __hash(proto, saddr, daddr, sport, dport);
+	ACC_DEBUG("Alloc hash=%u\n", hash);	
+	if (ap==NULL) {
+		ACC_DEBUG("?? ap==NULL?\n");
+	}
 	ct_write_lock(hash);
 	list_add(&ap->c_list, &acc_conn_tab[hash]);
 	ct_write_unlock(hash);
-
+	if (ap==NULL) {
+		ACC_DEBUG("?? ap==NULL?\n");
+	}
+	ACC_DEBUG("AP create end\n");
 	return ap;
 }
 

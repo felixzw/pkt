@@ -16,6 +16,9 @@
 #define CT_LOCKARRAY_MASK 0xfff
 #define CT_LOCKARRAY_SIZE 0xfff
 
+#define ACC_IN  0
+#define ACC_OUT 1
+
 #define ACC_DEBUG(msg...) \
 	printk(KERN_INFO "ACC: " msg);
 
@@ -32,6 +35,11 @@ struct acc_conn {
 	__be16 sport;
 	__be16 dport;
 	__be16 proto;
+
+	struct net_device *indev;
+	struct net_device *outdev;
+	u8 src_mac[ETH_ALEN];
+	u8 dst_mac[ETH_ALEN];
 
 	__u32 state;  /* Intend for TCP/IP stack states */
 
@@ -69,6 +77,8 @@ struct acc_conn {
 	__u32 trigger;
 	__u32 ack_nr;
 
+	int (*in_okfn)(struct sk_buff *);
+	int (*out_okfn)(struct sk_buff *);
 };
 
 /*
@@ -84,10 +94,11 @@ struct acc_aligned_lock
 extern int is_nilack(struct sk_buff *skb, int dir);
 extern void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *newskb);
 extern struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb);
+extern struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb);
 extern void acc_send_queue(struct acc_conn *ap);
 
 extern struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport);
-extern struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport);
+extern struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport, int dir);
 extern void acc_conn_expire(struct acc_conn *ap);
 extern void acc_conn_cleanup(void);
 extern int acc_conn_init(void);
