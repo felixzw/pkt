@@ -100,7 +100,7 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 			ap->ack_nr ++;	
 		} 	
 accept:
-		ACC_DEBUG("IN   seq=%u  ack_seq=%u\n", ntohl(th->seq),  ntohl(th->ack_seq));
+		ACC_DEBUG("IN seq=%u ack_seq=%u\n", ntohl(th->seq),  ntohl(th->ack_seq));
 		return NF_ACCEPT;
 	}
 	return NF_ACCEPT;
@@ -133,7 +133,6 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 	if (th->source == htons(80)) {
 		ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_OUT);
 		if (ap == NULL) {
-			ACC_DEBUG("saddr %u daddr %u sport %u dport %u\n", ntohl(iph->saddr), ntohl(iph->daddr), ntohs(th->source), ntohs(th->dest));
 			ACC_DEBUG("OUT get acc_conn failed\n");
 			goto accept;
 		}
@@ -162,13 +161,18 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 		 *  sk_buff_head is quiet hard to use, we have bug here
 		 * */
 		//data = skb_copy(skb, GFP_ATOMIC);
-		//acc_skb_enqueue(ap, data);
-		ap->trigger --;
-		
+		if (!th->fin || !th->rst) {
+			acc_skb_enqueue(ap, skb);
+			ACC_DEBUG("skb enqueu seq=%u\n", ntohl(tcp_hdr(skb)->seq));
+			ap->trigger --;
+		}
+
 		if (th->fin || th->rst || ap->trigger == 0) {
 			//ACC_DEBUG("Do send queue here\n");
-			//acc_send_queue(ap);
+			ACC_DEBUG("start to send pkts\n");
+			acc_send_queue(ap);
 			ap->trigger = 10;
+			goto accept;
 		} else {
 			/* Generage ACKs */
 			ack_skb = acc_alloc_nilack(ap, skb);
@@ -181,8 +185,7 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 				//NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, ap->in_okfn);
 				
 				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
-				
-				goto no_debug;
+				goto pkt_stolen;
 				/*Damn ... It is not working sometimes ...
 				 *  netif_rx is a bad idea
 				 * */
@@ -201,12 +204,14 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 		//return NF_DROP;
 		goto accept;
 accept:
-
 		ACC_DEBUG("OUT  seq=%u  ack_seq=%u\n", ntohl(th->seq), ntohl(th->ack_seq));
 		return NF_ACCEPT;
 	}
 no_debug:
 	return NF_ACCEPT;
+pkt_stolen:
+	return NF_STOLEN;
+
 }
 
 

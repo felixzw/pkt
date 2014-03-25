@@ -9,6 +9,7 @@
 #include <net/dst.h>			/* for struct dst_entry */
 #include <net/tcp.h>
 #include <net/udp.h>
+#include <net/icmp.h>
 #include <linux/compiler.h>
 #include <linux/proc_fs.h>
 

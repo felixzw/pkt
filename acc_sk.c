@@ -23,10 +23,11 @@ int is_nilack(struct sk_buff *skb, int dir)
 	return 0;
 }
 
-void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *nskb)
+void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *skb)
 {
+	struct sk_buff *nskb;
 	struct sk_buff_head *list = &(ap->send_queue);
-	struct dst_entry *old_dst;
+	//struct dst_entry *old_dst;
 
 	//old_dst = skb_dst(nskb);
 	//skb_dst_set(nskb, NULL);
@@ -35,6 +36,12 @@ void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *nskb)
 	//dst_release(old_dst);
 
 	//ACC_DEBUG("PKT: seq=%u ack_seq \n", TCP_SKB_CB(nskb)->seq);
+
+	nskb = skb_copy(skb, GFP_ATOMIC);
+	if (nskb->cloned) {
+		nskb->cloned = 0;
+	}
+	atomic_set(&nskb->users, 1);
 	skb_queue_tail(list, nskb);
 }
 
@@ -174,10 +181,61 @@ struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 }
 #endif
 
-static int acc_send_skb(struct sk_buff *skb)
+static int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap)
 {
+	int mtu;
+	struct iphdr *iph = ip_hdr(skb);
+	struct dst_entry * old_dst;
+
+	/* save old dst */
+	old_dst = skb_dst(skb);
+	skb_dst_set(skb, NULL);
+
+	/* MTU checking */
+	skb->dev = ap->outdev;
+	mtu = skb->dev->mtu;
+
+	if ((skb->len > mtu) && (iph->frag_off&__constant_htons(IP_DF))) {
+		/* replace with old dst, or we will send icmp to ourself */
+		skb_dst_set(skb, old_dst);
+		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
+		goto tx_error;
+	}
+
+	/* skb_dst(skb) has been updated, we don't need old_dst any more, drop old route */
+	dst_release(old_dst);
+
+	/* copy-on-write the packet before mangling it */
+	if (!skb_make_writable(skb, sizeof(struct iphdr))) {
+		goto tx_error;
+	}
 	
+	if (skb_cow(skb, skb->dev->hard_header_len)) {
+		goto tx_error;
+	}
+
+	//ip_hdr(skb)->saddr = cp->vaddr;
+	//ip_hdr(skb)->daddr = cp->caddr;
+	
+	ip_send_check(ip_hdr(skb));
+
+	/* FIXME: when application helper enlarges the packet and the length
+	 * 	   is larger than the MTU of outgoing device, there will be still
+	 * 	   	   MTU problem. */
+
+	/* Another hack: avoid icmp_send in ip_fragment */
+	skb->local_df = 1;
+	skb->data = (unsigned char *)skb_mac_header(skb);
+	skb->len += ETH_HLEN;
+	skb->pkt_type = PACKET_OUTGOING;
+	memcpy(eth_hdr(skb)->h_source, ap->dst_mac, ETH_ALEN);
+	memcpy(eth_hdr(skb)->h_dest, ap->src_mac, ETH_ALEN);
+	eth_hdr(skb)->h_proto = htons(ETH_P_IP);
+	dev_queue_xmit(skb);
 	return 0;
+tx_error:
+	kfree_skb(skb);
+	return 1;
 }
 
 
@@ -186,15 +244,16 @@ static int acc_send_skb(struct sk_buff *skb)
  * */
 void acc_send_queue(struct acc_conn *ap)
 {
-	struct sk_buff *skb, *n;
+	struct sk_buff *skb, *n, *buff;
 	struct dst_entry *old_dst;
-	/* Route to the other host */
 
-	//skb_queue_walk_safe(&(ap->acc_queue), skb, n)  {
-	//	skb_unlink(skb, &(ap->acc_queue));
-	//	dev_queue_xmit(skb);
-	//	ACC_DEBUG("Sending data: seq=%u\n", ntohl(tcp_hdr(skb)->seq));
-	//}
+	skb_queue_walk_safe(&(ap->send_queue), skb, n)  {
+		//skb_unlink(skb, &(ap->acc_queue));
+		//dev_queue_xmit(skb);
+		buff = skb_clone(skb, GFP_ATOMIC);
+		acc_send_skb(buff, ap);
+		ACC_DEBUG("Sending data: seq=%u\n", ntohl(tcp_hdr(skb)->seq));
+	}
 	
 	//while (!skb_queue_empty(&(ap->acc_queue))) {
 	//	skb = skb_dequeue(&(ap->acc_queue));
