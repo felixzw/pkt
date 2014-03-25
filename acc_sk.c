@@ -91,6 +91,8 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 			nskb->csum);
 	nskb->ip_summed = CHECKSUM_UNNECESSARY;
 	nskb->pkt_type = PACKET_HOST;
+	/* NOTE: skb->dev will used in ip_local_deliver_finish */
+	nskb->dev = ap->indev;
 	/* ip_route_me_harder expects skb->dst to be set */
 	//skb_dst_set(nskb, dst_clone(skb_dst(ap->ack)));
 
@@ -104,13 +106,16 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 	}
 	*/
 	//skb_dst_set(nskb, &rt->u.dst);
-	
-	ret = ip_route_input(nskb, iph->daddr, iph->saddr, RT_TOS(iph->tos), ap->indev);
+	//printk("skb->len: %u\n", skb->len);
+	ret = ip_route_input(nskb, iph->daddr, iph->saddr, iph->tos, ap->indev);
 	if (ret) {
-		ACC_DEBUG("ip_route_output_key failed %u\n", -ret);
+		ACC_DEBUG("ip_route_input failed %u\n", -ret);
 		kfree_skb(nskb);
 		return NULL;
 	}
+
+	//ACC_DEBUG("ip_local_deliver pointer=%p \n", skb_dst(nskb)->input);
+	
 	return nskb;
 }
 

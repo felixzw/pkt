@@ -73,7 +73,6 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 			//ACC_DEBUG("Cannot get conn when expire and free\n");
 			goto accept;
 		} 
-		ACC_DEBUG("IN GET acc_conn\n");
 		ap->rcv_end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - iph->ihl * 4;
 		ap->rcv_ack_seq = ntohl(th->ack_seq);
 		ap->rcv_seq = ntohl(th->seq);
@@ -182,6 +181,8 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 				//NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, ap->in_okfn);
 				
 				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
+				
+				goto no_debug;
 				/*Damn ... It is not working sometimes ...
 				 *  netif_rx is a bad idea
 				 * */
@@ -204,7 +205,7 @@ accept:
 		ACC_DEBUG("OUT  seq=%u  ack_seq=%u\n", ntohl(th->seq), ntohl(th->ack_seq));
 		return NF_ACCEPT;
 	}
-
+no_debug:
 	return NF_ACCEPT;
 }
 
