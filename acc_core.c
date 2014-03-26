@@ -151,7 +151,7 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 		 *  we need to stolen the data and cache them
 		 *  then generate the right ACKs and send to UP layer	
 		 *	*/
-#if 0
+
 		if (!th->fin || !th->rst) {
 			acc_skb_enqueue(ap, skb);
 			ACC_DEBUG("skb enqueu seq=%u\n", ntohl(tcp_hdr(skb)->seq));
@@ -161,11 +161,9 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 			//ACC_DEBUG("Do send queue here\n");
 			ACC_DEBUG("start to send pkts\n");
 			acc_send_queue(ap);
-			ap->trigger = 10;
+			ap->trigger = 5;
 			goto accept;
-		} else
-#endif 
-		{
+		} else {
 			/* Generage ACKs */
 			ack_skb = acc_alloc_nilack(ap, skb);
 			if (ack_skb) {
@@ -173,15 +171,10 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 				ACC_DEBUG("M-IN seq=%u  ack_seq=%u , OUTGOING-PKT seq=%u ack_seq=%u end_seq=%u\n",
 						ntohl(tcp_hdr(ack_skb)->seq), ntohl(tcp_hdr(ack_skb)->ack_seq),
 						ntohl(tcp_hdr(skb)->seq), ntohl(tcp_hdr(skb)->ack_seq), TCP_SKB_CB(skb)->end_seq);
-				//ap->acc_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
-				//NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, ap->in_okfn);
-				
-				if (!ack_skb->dev) {
-					ACC_DEBUG("NO DEV!!!!\n");
-					goto accept;
-				}
+				ap->acc_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
+			
 				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
-				//goto pkt_stolen;
+				goto pkt_stolen;
 			}
 		}
 		//return NF_STOLEN;

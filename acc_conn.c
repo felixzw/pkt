@@ -124,7 +124,7 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	ap->ssthresh = 50;  /* TODO: later ... */
 	ap->cwnd = 50;
 	
-	ap->trigger = 10; /* Just for debug */
+	ap->trigger = 5; /* Just for debug */
 
 	skb_queue_head_init(&(ap->send_queue));
 	skb_queue_head_init(&(ap->rcv_queue));
