@@ -97,6 +97,9 @@ extern void acc_skb_enqueue (struct acc_conn *ap, struct sk_buff *newskb);
 extern struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb);
 extern struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb);
 extern void acc_send_queue(struct acc_conn *ap);
+extern int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap);
+
+
 
 extern struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport);
 extern struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport, int dir);

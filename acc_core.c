@@ -38,7 +38,6 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 	struct tcphdr *th = NULL;
 	struct iphdr *iph = ip_hdr(sk);
 	struct acc_conn *ap;
-	
 
 	/* NOTE: In comint pkts just get into network
 	 * the tcp_hdr func couldnot work!
@@ -62,8 +61,8 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 				ap->in_okfn = okfn;
 				ap->indev = skb->dev;
 				/* Init the mac head of acc_conn */
-				memcmp(ap->src_mac, eth_hdr(skb)->h_source, ETH_ALEN);
-				memcmp(ap->dst_mac, eth_hdr(skb)->h_dest, ETH_ALEN);
+				memcpy(ap->src_mac, eth_hdr(skb)->h_source, ETH_ALEN);
+				memcpy(ap->dst_mac, eth_hdr(skb)->h_dest, ETH_ALEN);
 			}
 			goto accept;
 		}
@@ -90,13 +89,6 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 				//goto drop;
 			}
 		} else if (th->ack) {  //ACK with data
-			/*  This is for test 
-			 *  I am not sure copy the ack is a right way
-			 * 			 
-			if (ap->ack_nr == 0) {
-				ap->ack = skb_copy(skb, GFP_ATOMIC);
-			}
-			*/
 			ap->ack_nr ++;	
 		} 	
 accept:
@@ -129,6 +121,7 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 	struct sk_buff *data;
 	int ret;
 
+
 	th = tcp_hdr(skb);
 	if (th->source == htons(80)) {
 		ap = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_OUT);
@@ -148,32 +141,31 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 
 		if (is_nilack(skb, 1)) { /* Ignore the pure ACKs */
 			ACC_DEBUG("OUT Nilack ack_seq=%u\n", ntohl(th->ack_seq));
-			goto accept;
+			goto no_debug;
 		}
-		
+	
+		//ret = acc_send_skb(skb, ap);
+		//goto pkt_stolen;
+	
 		/*  Data block transmit start, dev_queue_xmit is used here to transmit our cached Data
 		 *  we need to stolen the data and cache them
 		 *  then generate the right ACKs and send to UP layer	
 		 *	*/
-		//ACC_DEBUG("OUT get acc_conn success, ack_nr=%u\n", ap->ack_nr);
-
-		/*  Enqueue the pkt from TCP layer 
-		 *  sk_buff_head is quiet hard to use, we have bug here
-		 * */
-		//data = skb_copy(skb, GFP_ATOMIC);
+#if 0
 		if (!th->fin || !th->rst) {
 			acc_skb_enqueue(ap, skb);
 			ACC_DEBUG("skb enqueu seq=%u\n", ntohl(tcp_hdr(skb)->seq));
 			ap->trigger --;
 		}
-
 		if (th->fin || th->rst || ap->trigger == 0) {
 			//ACC_DEBUG("Do send queue here\n");
 			ACC_DEBUG("start to send pkts\n");
 			acc_send_queue(ap);
 			ap->trigger = 10;
 			goto accept;
-		} else {
+		} else
+#endif 
+		{
 			/* Generage ACKs */
 			ack_skb = acc_alloc_nilack(ap, skb);
 			if (ack_skb) {
@@ -184,25 +176,18 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 				//ap->acc_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
 				//NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, ap->in_okfn);
 				
-				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
-				goto pkt_stolen;
-				/*Damn ... It is not working sometimes ...
-				 *  netif_rx is a bad idea
-				 * */
-				/*ret = netif_rx(ack_skb);
-				//ret = netif_receive_skb(ack_skb);
-				if (ret == NET_RX_DROP) {
-					ACC_DEBUG("Rcv skb failed\n");
-				} else {
-					kfree(ack_skb);
+				if (!ack_skb->dev) {
+					ACC_DEBUG("NO DEV!!!!\n");
+					goto accept;
 				}
-				*/
+				NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
+				//goto pkt_stolen;
 			}
-			//ACC_DEBUG("netif_rx ok\n");
 		}
 		//return NF_STOLEN;
 		//return NF_DROP;
 		goto accept;
+	
 accept:
 		ACC_DEBUG("OUT  seq=%u  ack_seq=%u\n", ntohl(th->seq), ntohl(th->ack_seq));
 		return NF_ACCEPT;
@@ -211,7 +196,6 @@ no_debug:
 	return NF_ACCEPT;
 pkt_stolen:
 	return NF_STOLEN;
-
 }
 
 

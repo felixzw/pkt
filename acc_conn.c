@@ -163,6 +163,19 @@ void acc_conn_expire(struct acc_conn *ap)
 
 void acc_conn_cleanup(void)
 {
+	struct acc_conn *ap;
+	unsigned hash = 0;
+	
+	for (hash = 0; hash < ACC_CONN_TAB_SIZE; hash ++) {
+		ct_read_lock(hash);
+		list_for_each_entry(ap, &acc_conn_tab[hash], c_list) {
+			if (ap) {
+				acc_conn_expire(ap);	
+			}
+		}
+		ct_read_unlock(hash);
+	}
+
 	/* Release the empty cache */
 	kmem_cache_destroy(acc_conn_cachep);
 	vfree(acc_conn_tab);

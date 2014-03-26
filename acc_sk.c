@@ -122,7 +122,6 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 	}
 
 	//ACC_DEBUG("ip_local_deliver pointer=%p \n", skb_dst(nskb)->input);
-	
 	return nskb;
 }
 
@@ -181,7 +180,7 @@ struct sk_buff *acc_alloc_ack(struct acc_conn *ap, struct sk_buff *skb)
 }
 #endif
 
-static int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap)
+int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap)
 {
 	int mtu;
 	struct iphdr *iph = ip_hdr(skb);
@@ -192,7 +191,7 @@ static int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap)
 	skb_dst_set(skb, NULL);
 
 	/* MTU checking */
-	skb->dev = ap->outdev;
+	skb->dev = ap->indev;
 	mtu = skb->dev->mtu;
 
 	if ((skb->len > mtu) && (iph->frag_off&__constant_htons(IP_DF))) {
@@ -205,7 +204,7 @@ static int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap)
 	/* skb_dst(skb) has been updated, we don't need old_dst any more, drop old route */
 	dst_release(old_dst);
 
-	/* copy-on-write the packet before mangling it */
+	/* copy-on-write the packet before mangling it 
 	if (!skb_make_writable(skb, sizeof(struct iphdr))) {
 		goto tx_error;
 	}
@@ -213,11 +212,15 @@ static int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap)
 	if (skb_cow(skb, skb->dev->hard_header_len)) {
 		goto tx_error;
 	}
-
 	//ip_hdr(skb)->saddr = cp->vaddr;
 	//ip_hdr(skb)->daddr = cp->caddr;
 	
-	ip_send_check(ip_hdr(skb));
+	//ip_send_check(ip_hdr(skb));
+	*/
+	skb_push(skb, ETH_HLEN);
+	//unset mac header for setting mac address 
+	skb_set_mac_header(skb, 0-sizeof(struct ethhdr));
+
 
 	/* FIXME: when application helper enlarges the packet and the length
 	 * 	   is larger than the MTU of outgoing device, there will be still
@@ -225,12 +228,48 @@ static int acc_send_skb(struct sk_buff *skb, struct acc_conn *ap)
 
 	/* Another hack: avoid icmp_send in ip_fragment */
 	skb->local_df = 1;
-	skb->data = (unsigned char *)skb_mac_header(skb);
-	skb->len += ETH_HLEN;
+	//skb->data = (unsigned char *)skb_mac_header(skb);
+
+	//skb->len += ETH_HLEN;
+
 	skb->pkt_type = PACKET_OUTGOING;
+	
+	if (ap->dst_mac == NULL || ap->src_mac == NULL) {
+		ACC_DEBUG("NULL pointer of mac\n");
+		return 1;
+	}
+#if 0
+  else {
+		ACC_DEBUG("SNED ACC-MAC SRC %2x.%2x.%2x.%2x.%2x.%2x\n", 
+				ap->src_mac[0],
+				ap->src_mac[1],
+				ap->src_mac[2],
+				ap->src_mac[3],
+				ap->src_mac[4],
+				ap->src_mac[5]);
+
+		ACC_DEBUG("SEND ACC-MAC DEST %2x.%2x.%2x.%2x.%2x.%2x\n", 
+				ap->dst_mac[0],
+				ap->dst_mac[1],
+				ap->dst_mac[2],
+				ap->dst_mac[3],
+				ap->dst_mac[4],
+				ap->dst_mac[5]);
+	}
+#endif	
 	memcpy(eth_hdr(skb)->h_source, ap->dst_mac, ETH_ALEN);
+	
+	if (!skb_mac_header_was_set(skb)) {
+		ACC_DEBUG("SKB MAC ERROR\n");
+		return 1;
+	}
+
 	memcpy(eth_hdr(skb)->h_dest, ap->src_mac, ETH_ALEN);
+
 	eth_hdr(skb)->h_proto = htons(ETH_P_IP);
+
+	ACC_DEBUG("dev_queue_xmit out\n");	
+
 	dev_queue_xmit(skb);
 	return 0;
 tx_error:
