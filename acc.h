@@ -51,13 +51,18 @@ struct acc_conn {
 	 */
 	__u32 seq;
 	__u32 end_seq;
+
 	__u32 ack_seq;
 	__u32 rcv_seq;
+
 	__u32 rcv_end_seq;
 	__u32 rcv_ack_seq;
 	
 	__u32 rcv_isn; /* This is for? */
-	__u32 acc_ack;  /* The seq ACC already ACKed, so we can drop the same incoming pure ack packet*/
+	__u32 acc_ack;  /* The seq ACC already ACKed, so we can drop the same incoming pure ack packet */
+
+	__u32 in_seq_start;
+	__u32 out_seq_start;
 	
 	/* skb queue for ACC */
 	struct sk_buff_head send_queue;

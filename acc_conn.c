@@ -102,51 +102,49 @@ struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be16 spor
 
 struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
 {
-	struct acc_conn* ap;
+	struct acc_conn* cp;
 	unsigned hash;
 	
-	ap = kmem_cache_alloc(acc_conn_cachep, GFP_ATOMIC);
-	if (ap == NULL) {
-		ACC_DEBUG("alloc ap==NULL?\n");
+	cp = kmem_cache_alloc(acc_conn_cachep, GFP_ATOMIC);
+	if (cp == NULL) {
+		ACC_DEBUG("alloc cp==NULL?\n");
 		return NULL;
 	}
 
-	memset(ap, 0, sizeof(*ap));
-	INIT_LIST_HEAD(&ap->c_list);
-	ap->proto = proto;
-	ap->saddr = saddr;
-	ap->daddr = daddr;
-	ap->sport = sport;
-	ap->dport = dport;
+	memset(ap, 0, sizeof(*cp));
+	INIT_LIST_HEAD(&cp->c_list);
+	cp->proto = proto;
+	cp->saddr = saddr;
+	cp->daddr = daddr;
+	cp->sport = sport;
+	cp->dport = dport;
 
-	ap->state = SYN_RCV; /* of course, this is wrong ... */
+	cp->in_seq_start = 0;
+	cp->out_seq_start = 0;
 
-	ap->ssthresh = 50;  /* TODO: later ... */
-	ap->cwnd = 50;
+	cp->state = SYN_RCV; /* WILL be fixed later ... */
+
+	cp->ssthresh = 50;  /* TODO: later ... */
+	cp->cwnd = 50;
 	
-	ap->trigger = 5; /* Just for debug */
+	cp->trigger = 5; /* Just for debug */
 
-	skb_queue_head_init(&(ap->send_queue));
-	skb_queue_head_init(&(ap->rcv_queue));
-
-	if (ap==NULL) {
-		ACC_DEBUG("?? ap==NULL?\n");
-	}
+	skb_queue_head_init(&(cp->send_queue));
+	skb_queue_head_init(&(cp->rcv_queue));
 
 	/* Hash to acc_conn_tab */
 	hash = __hash(proto, saddr, daddr, sport, dport);
-	//ACC_DEBUG("Alloc hash=%u\n", hash);	
-	if (ap==NULL) {
+	if (cp==NULL) {
 		ACC_DEBUG("?? ap==NULL?\n");
 	}
 	ct_write_lock(hash);
-	list_add(&ap->c_list, &acc_conn_tab[hash]);
+	list_add(&cp->c_list, &acc_conn_tab[hash]);
 	ct_write_unlock(hash);
-	if (ap==NULL) {
+	if (cp==NULL) {
 		ACC_DEBUG("?? ap==NULL?\n");
 	}
 	ACC_DEBUG("AP create end\n");
-	return ap;
+	return cp;
 }
 
 void acc_conn_expire(struct acc_conn *ap)
