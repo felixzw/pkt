@@ -111,7 +111,7 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 		return NULL;
 	}
 
-	memset(ap, 0, sizeof(*cp));
+	memset(cp, 0, sizeof(*cp));
 	INIT_LIST_HEAD(&cp->c_list);
 	cp->proto = proto;
 	cp->saddr = saddr;

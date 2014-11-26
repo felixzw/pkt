@@ -21,6 +21,13 @@ MODULE_DESCRIPTION("ACC Func Test");
 MODULE_ALIAS("ACC Module Test");
 
 /*
+ *  Debug format:  flag[S:F:R] seq ack 
+ *
+ *	TODO
+ */
+
+
+/*
  *  Get the incoming pkts
  *  Discard the pure ack from remote which we are already send to UP LAYER  
  *  The ACKs which we generate will go through here? how to avoid?
@@ -44,59 +51,67 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 	 * */
 	th = (struct tcphdr *)(skb_network_header(skb) + iph->ihl * 4);
 
-	if (th->dest == htons(80)) {
-		if (th->syn) {
-			cp = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_IN);		
-			if (cp == NULL) {
-				cp = acc_conn_new(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest);	
-				if (cp == NULL) {
-					ACC_DEBUG("IN Alloc acc_conn struct failed\n");
-					goto accept;
-				}
-				cp->rcv_isn = ntohl(th->seq);
-				cp->rcv_seq = ntohl(th->seq);
-				cp->rcv_ack_seq = ntohl(th->ack_seq);
-				cp->rcv_end_seq = ap->rcv_isn + th->fin +
-				       	th->syn + skb->len - iph->ihl * 4 - th->doff * 4;
-				
-				cp->in_start_seq = ntohl(th->seq);
-				cp->in_okfn = okfn;
-				cp->indev = skb->dev;
-				/* Init the mac head of acc_conn */
-				memcpy(cp->src_mac, eth_hdr(skb)->h_source, ETH_ALEN);
-				memcpy(cp->dst_mac, eth_hdr(skb)->h_dest, ETH_ALEN);
-			}
-			goto accept;
-		}
-
-		cp = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_IN);	
-		if (cp == NULL) {
-			//ACC_DEBUG("Cannot get conn when expire and free\n");
-			goto accept;
-		} 
-		cp->rcv_end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - iph->ihl * 4;
-		cp->rcv_ack_seq = ntohl(th->ack_seq);
-		cp->rcv_seq = ntohl(th->seq);
-		
-		if(th->fin) {
-			/*  Expire acc_conn here is not the BEST 
-			 *  When to do it?			
-			 * 			*/
-			acc_conn_expire(cp);
-
-		/* nilACK detected, Maybe is our acc_ack, Just accept it right now */
-		} else if (is_nilack(skb, 0)) {	
-			if (ntohl(th->ack_seq) == cp->acc_ack) {
-				ACC_DEBUG("RECV OUR ACC ACKS ack_seq=%u  cur_ack=%u\n", ntohl(th->ack_seq), ap->acc_ack);
-				//goto drop;
-			}
-		} else if (th->ack) {  //ACK with data
-			cp->ack_nr ++;	
-		} 	
-accept:
-		ACC_DEBUG("IN seq=%u ack_seq=%u\n", ntohl(th->seq),  ntohl(th->ack_seq));
+	if (th->dest != htons(80)) {
 		return NF_ACCEPT;
 	}
+
+	if (th->syn) {
+		cp = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_IN);		
+		if (cp == NULL) {
+			cp = acc_conn_new(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest);	
+			if (cp == NULL) {
+				ACC_DEBUG("IN Alloc acc_conn struct failed\n");
+				goto accept;
+			}
+			cp->rcv_isn = ntohl(th->seq);
+			cp->rcv_seq = ntohl(th->seq);
+			cp->rcv_ack_seq = ntohl(th->ack_seq);
+			cp->rcv_end_seq = cp->rcv_isn + th->fin +
+				th->syn + skb->len - iph->ihl * 4 - th->doff * 4;
+
+			cp->in_seq_start = ntohl(th->seq);
+			cp->in_okfn = okfn;
+			cp->indev = skb->dev;
+			/* Init the mac head of acc_conn */
+			memcpy(cp->src_mac, eth_hdr(skb)->h_source, ETH_ALEN);
+			memcpy(cp->dst_mac, eth_hdr(skb)->h_dest, ETH_ALEN);
+		}
+		goto accept;
+	}
+
+	cp = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_IN);	
+	if (cp == NULL) {
+		//ACC_DEBUG("Cannot get conn when expire and free\n");
+		goto accept;
+	} 
+	cp->rcv_end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - iph->ihl * 4;
+	cp->rcv_ack_seq = ntohl(th->ack_seq);
+	cp->rcv_seq = ntohl(th->seq);
+
+	if(th->fin) {
+		/*  Expire acc_conn here is not the BEST 
+		 *  When to do it?			
+		 * 			*/
+		acc_conn_expire(cp);
+
+		/* nilACK detected, Maybe is our acc_ack, Just accept it right now */
+	} else if (is_nilack(skb, 0)) {	
+		if (ntohl(th->ack_seq) == cp->acc_ack) {
+			//ACC_DEBUG("RECV OUR ACC ACKS ack_seq=%u  cur_ack=%u\n", ntohl(th->ack_seq), ap->acc_ack);
+			//goto drop;
+		}
+	} else if (th->ack) {  //ACK with data
+		cp->ack_nr ++;	
+	} 	
+accept:
+	if (cp && !th->syn) {
+		ACC_DEBUG("IN %u:%u:%u seq %u:%u ack_seq %u\n",
+				th->syn, th->fin, th->rst, 
+				ntohl(th->seq)-cp->in_seq_start, cp->rcv_end_seq - cp->in_seq_start,  ntohl(th->ack_seq) - cp->out_seq_start);
+	} else { 
+		ACC_DEBUG("IN %u:%u:%u seq %u ack_seq %u\n",th->syn, th->fin, th->rst, ntohl(th->seq),  ntohl(th->ack_seq));
+	}
+
 	return NF_ACCEPT;
 
 drop:
@@ -126,16 +141,16 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 
 	th = tcp_hdr(skb);
 	if (th->source != htons(80)) {
-		goto accept;
+		return NF_ACCEPT;
 	}
 	cp = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_OUT);
 	if (cp == NULL) {
 		ACC_DEBUG("INFO: local_out get acc_conn failed\n");
-		goto accept;
+		return NF_ACCEPT;
 	}
 
 	if (th->syn) {
-		cp->out_start_seq = ntohl(th->seq);
+		cp->out_seq_start = ntohl(th->seq);
 
 		cp->seq = ntohl(th->seq); 
 		/* skb alreay go through TCP layer, use TCP_SKB_CB safely */		
@@ -144,12 +159,12 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 		cp->out_okfn = okfn;
 		cp->outdev = skb->dev;
 
-		ACC_DEBUG("OUT: seq %u ack_seq %u\n",ntohl(th->seq), ntohl(th->ack_seq));
+		//ACC_DEBUG("OUT: seq %u ack_seq %u\n",ntohl(th->seq), ntohl(th->ack_seq));
 		goto accept;
 	}
 
 	if (is_nilack(skb, 1)) { /* Ignore the pure ACKs */
-		ACC_DEBUG("OUT: seq %uack_seq %u : nilack\n",ntohl(th->seq), ntohl(th->ack_seq));
+		//ACC_DEBUG("OUT: seq %uack_seq %u : nilack\n",ntohl(th->seq), ntohl(th->ack_seq));
 		goto accept;
 	}
 
@@ -167,7 +182,8 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 		//ap->trigger --;
 	}
 
-	if (th->fin || th->rst || ap->trigger == 0) {
+	//if (th->fin || th->rst || cp->trigger == 0) {
+	if (th->fin || th->rst) {
 		//ACC_DEBUG("Do send queue here\n");
 		//ACC_DEBUG("start to send pkts\n");
 		//acc_send_queue(cp);
@@ -181,7 +197,9 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 			//ACC_DEBUG("M-IN seq=%u  ack_seq=%u , OUTGOING-PKT seq=%u ack_seq=%u end_seq=%u\n",
 			//		ntohl(tcp_hdr(ack_skb)->seq), ntohl(tcp_hdr(ack_skb)->ack_seq),
 			//		ntohl(tcp_hdr(skb)->seq), ntohl(tcp_hdr(skb)->ack_seq), TCP_SKB_CB(skb)->end_seq);
-			ACC_DEBUG("ACC-IN: seq %u ack_seq %u\n", ntohl(tcp_hdr(ack_skb)->seq), ntohl(tcp_hdr(ack_skb)->ack_seq));
+			ACC_DEBUG("ACC-IN: seq %u ack_seq %u\n", 
+					ntohl(tcp_hdr(ack_skb)->seq) - cp->in_seq_start, 
+					ntohl(tcp_hdr(ack_skb)->ack_seq) - cp->out_seq_start);
 			cp->acc_ack = ntohl(tcp_hdr(ack_skb)->ack_seq);
 
 			NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
@@ -192,11 +210,16 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 			ACC_DEBUG("ERROR: allock skb failed\n");
 		}
 	}
-	//return NF_STOLEN;
-	//return NF_DROP;
 	
 accept:
-	//	ACC_DEBUG("OUT  seq=%u  ack_seq=%u\n", ntohl(th->seq), ntohl(th->ack_seq));
+	if (cp && !th->syn)  {
+		ACC_DEBUG("OUT %u:%u:%u seq %u:%u ack_seq %u\n",
+				th->syn, th->fin, th->rst, 
+				ntohl(th->seq) - cp->out_seq_start, TCP_SKB_CB(skb)->end_seq - cp->out_seq_start,  ntohl(th->ack_seq) - cp->in_seq_start);
+	} else  {
+		ACC_DEBUG("OUT %u:%u:%u seq %u ack_seq %u\n",th->syn, th->fin, th->rst, ntohl(th->seq),  ntohl(th->ack_seq));
+	}
+
 	return NF_ACCEPT;
 
 pkt_stolen:

@@ -16,6 +16,7 @@ int is_nilack(struct sk_buff *skb, int dir)
 		}
 	} else {  /* Out going pkt */
 		if (th->ack && TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq) {
+			printk("== %u %u\n", TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq);
 			return 1;
 		}
 
@@ -76,6 +77,13 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 	th->seq        = nseq;
 	th->ack_seq  = nack_seq;
 	th->window    = htons(0xFFFF);
+
+	th->fin = 0;
+	th->syn = 0;
+	th->ack = 1;
+	th->rst = 0;
+	//*(((__be16 *)th) + 6) = htons(((tcp_header_size >> 2) << 12) | TCPCB_FLAG_ACK);
+
 	skb_reset_transport_header(nskb);
 
 	iph = (struct iphdr *)skb_push(nskb, sizeof(struct iphdr));
