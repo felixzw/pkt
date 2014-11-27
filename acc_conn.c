@@ -131,6 +131,7 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 
 	skb_queue_head_init(&(cp->send_queue));
 	skb_queue_head_init(&(cp->rcv_queue));
+	skb_queue_head_init(&(cp->acc_write_queue));
 
 	/* Hash to acc_conn_tab */
 	hash = __hash(proto, saddr, daddr, sport, dport);
@@ -220,3 +221,4 @@ clean_conn_cachep:
 e_nomem:
 	return -ENOMEM;
 }
+

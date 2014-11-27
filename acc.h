@@ -68,6 +68,8 @@ struct acc_conn {
 	struct sk_buff_head send_queue;
 	struct sk_buff_head rcv_queue; /* NOT using right now */
 
+	struct sk_buff_head acc_write_queue;
+
 	//struct sk_buff *ack; /* Cache the ack from remote, ugly here */
 
 	/*
@@ -111,3 +113,42 @@ extern struct acc_conn *acc_conn_get(int proto, __be32 saddr, __be32 daddr, __be
 extern void acc_conn_expire(struct acc_conn *ap);
 extern void acc_conn_cleanup(void);
 extern int acc_conn_init(void);
+
+
+/**
+ *      ACC WRITE QUEUE OPS
+ **/
+static inline void acc_unlink_write_queue(struct sk_buff *skb, struct acc_conn *cp)
+{
+	__skb_unlink (skb, &cp->acc_write_queue);
+}
+
+static inline void acc_write_queue_empty(struct acc_conn *cp)
+{
+	return skb_queue_empty(&cp->acc_write_queue);
+}
+
+static inline void __acc_add_write_queue_head(struct acc_conn *cp, struct sk_buff *skb)
+{
+	__skb_queue_head(&cp->acc_write_queue, skb);
+}
+
+static inline void __acc_add_write_queue_tail(struct acc_conn *cp, struct sk_buff *skb)
+{
+	__skb_queue_tail(&cp->acc_write_queue, skb);
+}
+
+static inline void acc_add_write_queue_tail(struct acc_conn *cp, struct sk_buff *skb)
+{
+	__acc_add_write_queue_tail(cp, skb);
+
+	/* Queue it, remembering where we must start sending. */
+	/*
+	if (sk->sk_send_head == NULL) {
+		sk->sk_send_head = skb;
+
+		if (tcp_sk(sk)->highest_sack == NULL)
+			tcp_sk(sk)->highest_sack = skb;
+	}
+	*/
+}
