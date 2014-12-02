@@ -87,7 +87,8 @@ struct acc_conn {
 	* each ACK will send snd_wnd's pkts
 	*/
 	__u32 snd_wnd;
-	
+	__u32 acc_snd_ack_nr; /* How to decide how many ack to sned to up layer */
+
 	__u32 snd_una;
 	// for debug using
 	__u32 trigger;
@@ -160,6 +161,10 @@ static inline void acc_add_write_queue_tail(struct acc_conn *cp, struct sk_buff 
 	}
 	*/
 }
+static inline struct sk_buff *acc_write_queue_next(struct acc_conn *cp, struct sk_buff *skb)
+{
+	return skb_queue_next(&cp->acc_write_queue, skb);
+}
 
 static inline struct sk_buff *acc_write_queue_head(struct acc_conn *cp)
 {
@@ -169,6 +174,15 @@ static inline struct sk_buff *acc_write_queue_head(struct acc_conn *cp)
 static inline struct sk_buff *acc_send_head(struct acc_conn *cp)
 {
 	return cp->acc_send_head;
+}
+
+static inline void acc_advance_send_head(struct acc_conn *cp, struct sk_buff *skb)
+{
+	if (tcp_skb_is_last(sk, skb))
+	if (skb_queue_is_last(&cp->acc_write_queue, skb))
+		cp->acc_send_head = NULL;
+	else
+		cp->acc_send_head = acc_write_queue_next(sk, skb);
 }
 
 

@@ -126,6 +126,9 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 
 	cp->ssthresh = 50;  /* TODO: later ... */
 	cp->cwnd = 50;
+
+	cp->snd_wnd = 10;
+	cp->acc_snd_ack_nr = 10;
 	
 	cp->trigger = 5; /* Just for debug */
 
