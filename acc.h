@@ -81,6 +81,13 @@ struct acc_conn {
 	__u32 ssthresh;
 	__u32 cwnd;
 	
+	/*
+	* ACK will trigger to send data
+	* each ACK will send snd_wnd's pkts
+	*/
+	__u32 snd_wnd;
+	
+	__u32 snd_una;
 	// for debug using
 	__u32 trigger;
 	__u32 ack_nr;
@@ -151,4 +158,9 @@ static inline void acc_add_write_queue_tail(struct acc_conn *cp, struct sk_buff 
 			tcp_sk(sk)->highest_sack = skb;
 	}
 	*/
+}
+
+static inline struct sk_buff *acc_write_queue_head(struct acc_conn *cp)
+{
+	return skb_peek(&cp->sk_write_queue);
 }

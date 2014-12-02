@@ -148,15 +148,25 @@ struct acc_conn *acc_conn_new(int proto, __be32 saddr, __be32 daddr, __be16 spor
 	return cp;
 }
 
-void acc_conn_expire(struct acc_conn *ap)
+void acc_clean_queue_all(struct acc_conn *cp) 
+{
+	struct sk_buff *skb;
+
+	while ((skb = acc_write_queue_head(cp)) && skb != acc_send_head(sk)) {
+		dev_queue_xmit(skb);
+	}
+}
+
+void acc_conn_expire(struct acc_conn *cp)
 {
 	/*
 	if (ap->ack) {
 		kfree_skb(ap->ack);
 	}
 	*/
-	acc_conn_unhash(ap);
-	kmem_cache_free(acc_conn_cachep, ap);
+	acc_conn_unhash(cp);
+	acc_clean_queue_all(cp);
+	kmem_cache_free(acc_conn_cachep, cp);
 }
 
 

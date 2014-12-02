@@ -87,6 +87,9 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 	cp->rcv_end_seq = ntohl(th->seq) + th->syn + th->fin + skb->len - th->doff * 4 - iph->ihl * 4;
 	cp->rcv_ack_seq = ntohl(th->ack_seq);
 	cp->rcv_seq = ntohl(th->seq);
+	
+	acc_clean_rtx_queue(cp, ntohl(th->ack_seq));
+	acc_data_snd(cp);	
 
 	if(th->fin) {
 		/*  Expire acc_conn here is not the BEST 
@@ -111,7 +114,6 @@ accept:
 	} else { 
 		ACC_DEBUG("IN %u:%u:%u seq %u ack_seq %u\n",th->syn, th->fin, th->rst, ntohl(th->seq),  ntohl(th->ack_seq));
 	}
-
 	return NF_ACCEPT;
 
 drop:
@@ -180,6 +182,7 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 		//acc_skb_enqueue(ap, skb);
 		//ACC_DEBUG("skb enqueu seq=%u\n", ntohl(tcp_hdr(skb)->seq));
 		//ap->trigger --;
+
 	}
 
 	//if (th->fin || th->rst || cp->trigger == 0) {
@@ -191,6 +194,23 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 
 		goto accept;
 	} else {
+		
+		/*
+		* Queue the outgoing pkts
+		*/
+		struct sk_buff *nskb;
+		if (skb_cloned(skb))
+			nskb = pskb_copy(skb, GFP_ATOMIC);
+		else
+			nskb = skb_clone(skb, GFP_ATOMIC);
+		if (!nskb) {
+			ACC_DEBUG("skb clone failed\n");
+			acc_conn_expire(cp);
+			goto accept;
+		}
+
+		acc_add_write_queue_tail(cp, nskb);
+
 		/* Generage ACKs */
 		ack_skb = acc_alloc_nilack(cp, skb);
 		if (ack_skb) {
@@ -205,10 +225,10 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 			NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
 			//goto pkt_stolen;
 			/* IS goto stolen, but for debug, we get to accept */
-			goto accept;
 		} else {
 			ACC_DEBUG("ERROR: allock skb failed\n");
 		}
+		goto pkt_stolen:
 	}
 	
 accept:
@@ -222,7 +242,15 @@ accept:
 
 	return NF_ACCEPT;
 
-pkt_stolen:
+pkt_stolen:	
+	if (cp && !th->syn)  {
+		ACC_DEBUG("OUT %u:%u:%u seq %u:%u ack_seq %u\n",
+				th->syn, th->fin, th->rst, 
+				ntohl(th->seq) - cp->out_seq_start, TCP_SKB_CB(skb)->end_seq - cp->out_seq_start,  ntohl(th->ack_seq) - cp->in_seq_start);
+	} else  {
+		ACC_DEBUG("OUT %u:%u:%u seq %u ack_seq %u\n",th->syn, th->fin, th->rst, ntohl(th->seq),  ntohl(th->ack_seq));
+	}
+
 	return NF_STOLEN;
 }
 
