@@ -140,7 +140,6 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 	struct sk_buff *data;
 	int ret;
 
-
 	th = tcp_hdr(skb);
 	if (th->source != htons(80)) {
 		return NF_ACCEPT;
@@ -228,7 +227,7 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 		} else {
 			ACC_DEBUG("ERROR: allock skb failed\n");
 		}
-		goto pkt_stolen:
+		goto pkt_stolen;
 	}
 	
 accept:

@@ -14,7 +14,7 @@ static int acc_clean_rtx_queue(struct acc_conn *cp, u32 ack)
 	struct sk_buff *skb;
 	int fully_acked = 1;
 
-	while ((skb = acc_write_queue_head(cp)) && skb != acc_send_head(sk)) {
+	while ((skb = acc_write_queue_head(cp)) && skb != acc_send_head(cp)) {
 		struct tcp_skb_cb *scb = TCP_SKB_CB(skb);
 		if (after(scb->end_seq, ack)) {
 			fully_acked = 0;

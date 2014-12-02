@@ -69,7 +69,8 @@ struct acc_conn {
 	struct sk_buff_head rcv_queue; /* NOT using right now */
 
 	struct sk_buff_head acc_write_queue;
-
+	
+	struct sk_buff *acc_send_head;
 	//struct sk_buff *ack; /* Cache the ack from remote, ugly here */
 
 	/*
@@ -162,5 +163,19 @@ static inline void acc_add_write_queue_tail(struct acc_conn *cp, struct sk_buff 
 
 static inline struct sk_buff *acc_write_queue_head(struct acc_conn *cp)
 {
-	return skb_peek(&cp->sk_write_queue);
+	return skb_peek(&cp->acc_write_queue);
 }
+
+static inline struct sk_buff *acc_send_head(struct acc_conn *cp)
+{
+	return cp->acc_send_head;
+}
+
+
+/*
+ * INPUT
+ */
+static int acc_clean_rtx_queue(struct acc_conn *cp, u32 ack);
+
+/*  OUTPUT  */
+static int acc_data_snd(struct acc_conn *cp);
