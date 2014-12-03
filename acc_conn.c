@@ -156,7 +156,9 @@ void acc_clean_queue_all(struct acc_conn *cp)
 	struct sk_buff *skb;
 
 	while ((skb = acc_write_queue_head(cp)) && skb != acc_send_head(cp)) {
-		dev_queue_xmit(skb);
+		//dev_queue_xmit(skb);
+		acc_unlink_write_queue(skb, cp);
+		__kfree_skb(skb);
 	}
 }
 

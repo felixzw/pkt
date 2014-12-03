@@ -108,6 +108,8 @@ struct sk_buff *acc_alloc_nilack(struct acc_conn *ap, struct sk_buff *skb)
 	nskb->pkt_type = PACKET_HOST;
 	/* NOTE: skb->dev will used in ip_local_deliver_finish */
 	nskb->dev = ap->indev;
+
+	nskb->cb[47] = 3;
 	/* ip_route_me_harder expects skb->dst to be set */
 	//skb_dst_set(nskb, dst_clone(skb_dst(ap->ack)));
 

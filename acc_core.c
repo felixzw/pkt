@@ -55,6 +55,10 @@ static unsigned int nf_hook_in(unsigned int hooknum,
 		return NF_ACCEPT;
 	}
 
+	if (skb->cb[47] == 3) {
+
+	}
+
 	if (th->syn) {
 		cp = acc_conn_get(iph->protocol, iph->saddr, iph->daddr, th->source, th->dest, ACC_IN);		
 		if (cp == NULL) {
@@ -223,7 +227,6 @@ static unsigned int nf_hook_out(unsigned int hooknum,
 
 			NF_HOOK(PF_INET, NF_INET_PRE_ROUTING, ack_skb, ack_skb->dev, NULL, skb_dst(ack_skb)->input);
 			//goto pkt_stolen;
-			/* IS goto stolen, but for debug, we get to accept */
 		} else {
 			ACC_DEBUG("ERROR: allock skb failed\n");
 		}
